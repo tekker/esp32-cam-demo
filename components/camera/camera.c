@@ -37,7 +37,7 @@
 #include "soc/i2s_struct.h"
 #include "soc/io_mux_reg.h"
 #include "sensor.h"
-#include "ov7725.h"
+#include "ov7670.h"
 #include <stdlib.h>
 #include <string.h>
 #include "rom/lldesc.h"
@@ -46,7 +46,7 @@
 #include "esp_log.h"
 #include "driver/periph_ctrl.h"
 
-# define ENABLE_TEST_PATTERN CONFIG_ENABLE_TEST_PATTERN
+#define ENABLE_TEST_PATTERN CONFIG_ENABLE_TEST_PATTERN
 
 static const char* TAG = "camera";
 
@@ -131,10 +131,18 @@ esp_err_t camera_init(const camera_config_t* config)
     ESP_LOGD(TAG, "Initializing SSCB");
     SCCB_Init(s_config.pin_sscb_sda, s_config.pin_sscb_scl);
     ESP_LOGD(TAG, "Resetting camera");
+    
+    gpio_config_t conf = {0};
+    conf.pin_bit_mask = 1LL << s_config.pin_reset;
+    conf.mode = GPIO_MODE_OUTPUT;
+    gpio_config(&conf);
+    gpio_pulldown_en(s_config.pin_reset);
     gpio_set_level(s_config.pin_reset, 0);
-    delay(1);
+    delay(10);
+    gpio_pulldown_dis(s_config.pin_reset);
     gpio_set_level(s_config.pin_reset, 1);
     delay(10);
+
     ESP_LOGD(TAG, "Searching for camera address");
     uint8_t addr = SCCB_Probe();
     if (addr == 0) {
@@ -144,13 +152,26 @@ esp_err_t camera_init(const camera_config_t* config)
     ESP_LOGD(TAG, "Detected camera at address=0x%02x", addr);
     s_sensor.slv_addr = addr;
 
-    ov7725_init(&s_sensor);
+    //ov7725_init(&s_sensor);
+    ov7670_init(&s_sensor);
     ESP_LOGD(TAG, "Camera PID=0x%02x VER=0x%02x MIDL=0x%02x MIDH=0x%02x",
             s_sensor.id.pid, s_sensor.id.ver, s_sensor.id.midh,
             s_sensor.id.midl);
 
     ESP_LOGD(TAG, "Doing SW reset of sensor");
     s_sensor.reset(&s_sensor);
+
+    ESP_LOGD(TAG, "Setting pixel format to YUV");
+    s_sensor.set_pixformat(&s_sensor, PIXFORMAT_YUV422); 
+
+    framesize_t framesize = FRAMESIZE_QVGA;
+    s_fb_w = resolution[framesize][0];
+    s_fb_h = resolution[framesize][1];
+    ESP_LOGD(TAG, "Setting frame size at %dx%d", s_fb_w, s_fb_h);
+    if (s_sensor.set_framesize(&s_sensor, framesize) != 0) {
+        ESP_LOGE(TAG, "Failed to set frame size");
+        return ESP_ERR_CAMERA_FAILED_TO_SET_FRAME_SIZE;
+    }
 
 #if ENABLE_TEST_PATTERN
     /* Test pattern may get handy
@@ -161,15 +182,6 @@ esp_err_t camera_init(const camera_config_t* config)
     s_sensor.set_colorbar(&s_sensor, 1);
     ESP_LOGD(TAG, "Test pattern enabled");
 #endif
-
-    framesize_t framesize = FRAMESIZE_QVGA;
-    s_fb_w = resolution[framesize][0];
-    s_fb_h = resolution[framesize][1];
-    ESP_LOGD(TAG, "Setting frame size at %dx%d", s_fb_w, s_fb_h);
-    if (s_sensor.set_framesize(&s_sensor, framesize) != 0) {
-        ESP_LOGE(TAG, "Failed to set frame size");
-        return ESP_ERR_CAMERA_FAILED_TO_SET_FRAME_SIZE;
-    }
 
     s_fb_size = s_fb_w * s_fb_h;
     ESP_LOGD(TAG, "Allocating frame buffer (%dx%d, %d bytes)", s_fb_w, s_fb_h,

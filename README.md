@@ -1,5 +1,9 @@
 # ESP32 Camera Demo
 
+## OV7670
+
+NOTE: Updated to work with OV7670. Very basic support only in this repo however confirmed to work with test pattern and simple grayscale image. No changes to pinout required.
+
 Code provided in this repository gets the image from camera and prints it out as ASCII art to the serial port.
 
 ## Build Status
